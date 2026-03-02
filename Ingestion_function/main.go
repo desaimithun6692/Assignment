@@ -41,8 +41,8 @@ func ProcessMessage(ctx context.Context, m PubSubMessage) error {
 	}
 
 	query := `
-		INSERT INTO events (id, event_name, timestamp, properties)
-		VALUES ($1, $2, $3, $4)
+		INSERT INTO events (id, event_name, timestamp, properties,tenantId)
+		VALUES ($1, $2, $3, $4,$5)
 		ON CONFLICT (id) DO NOTHING`
 
 	_, err := dbPool.Exec(ctx, query, 
@@ -50,6 +50,7 @@ func ProcessMessage(ctx context.Context, m PubSubMessage) error {
 		event.EventName, 
 		event.Timestamp, 
 		event.Properties,
+		event.TenantId,
 	)
 	if err != nil {
 		return fmt.Errorf("dbPool.Exec: %v", err)

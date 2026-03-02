@@ -43,9 +43,7 @@ services:
       # FORMAT: project,topic:subscription
       # This tells the image to create the topic and sub automatically on startup
       - PUBSUB_PROJECT1=local-project,events-topic:events-push-sub
-    # We must override the push endpoint if we want it to hit our 'app' container
-    # The image doesn't support setting push endpoints via env vars easily, 
-    # so we'll fix the curl script below.
+  
   
   setup-emulator:
     image: alpine:latest
