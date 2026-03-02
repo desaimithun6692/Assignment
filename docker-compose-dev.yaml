@@ -1,0 +1,87 @@
+services:
+  db:
+    image: postgres:18-alpine
+    container_name: event_analytics_db
+    restart: always
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: 1234
+      POSTGRES_DB: ingestion
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql # Auto-runs schema
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dev -d ingestion"]
+      interval: 5s
+      retries: 5
+
+
+  app:
+    build: 
+      context: ./ingestion_function
+      dockerfile: Dockerfile
+    container_name: event_function
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: "postgres://dev:1234@db:5432/ingestion?sslmode=disable"
+      FUNCTION_TARGET: "ProcessMessage"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  pubsub:
+    image: thekevjames/gcloud-pubsub-emulator:latest
+    container_name: pubsub_emulator
+    ports:
+      - "8681:8681"
+    environment:
+      - PUBSUB_PROJECT_ID=local-project
+      - PUBSUB_LISTEN_ADDRESS=0.0.0.0:8681
+      # FORMAT: project,topic:subscription
+      # This tells the image to create the topic and sub automatically on startup
+      - PUBSUB_PROJECT1=local-project,events-topic:events-push-sub
+    # We must override the push endpoint if we want it to hit our 'app' container
+    # The image doesn't support setting push endpoints via env vars easily, 
+    # so we'll fix the curl script below.
+  
+  setup-emulator:
+    image: alpine:latest
+    container_name: pubsub_setup
+    depends_on:
+      - pubsub
+    entrypoint: >
+      /bin/sh -c "
+      sleep 3;
+      apk add --no-cache curl;
+      echo 'Creating Topic...';
+      curl -X PUT http://pubsub:8681/v1/projects/local-project/topics/events-topic;
+      echo 'Creating Push Subscription...';
+      curl -X PUT http://pubsub:8681/v1/projects/local-project/subscriptions/events-push-sub -H 'Content-Type: application/json' -d '{\"topic\":\"projects/local-project/topics/events-topic\",\"pushConfig\":{\"pushEndpoint\":\"http://app:8080/\"}}';
+      echo 'Push Subscription Configured!';"
+
+  events-service:
+    build:
+      context: ./Event_service
+      dockerfile: DockerFile
+    container_name: event_api
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=postgres://dev:1234@db:5432/ingestion?sslmode=disable
+      - GOOGLE_CLOUD_PROJECT=local-project
+      - PUBSUB_EMULATOR_HOST=pubsub:8681
+      - PORT=8081
+    depends_on:
+      db:
+        condition: service_healthy
+      pubsub:
+        condition: service_started
+
+  
+
+
+volumes:
+  postgres_data:
